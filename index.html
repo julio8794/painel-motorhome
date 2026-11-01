@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Painel Motorhome</title>
+<meta name="description" content="Bateria, BMS e carregador do motorhome num só painel, via Bluetooth.">
+<meta name="theme-color" content="#0f1417">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout: painel de instrumentos de cabine — faixa de status, mostrador da bateria da casa, fluxo de energia, três cartões de aparelho. */
+:root{
+  --bg:#eef1ef; --panel:#ffffff; --panel-2:#e3e8e5; --line:#cfd7d2;
+  --fg:#16201c; --muted:#5b6a63;
+  --accent:#d98a1c;            /* âmbar de painel */
+  --ok:#1f8a52; --warn:#b97a06; --bad:#c23a2b; --charge:#1f8a52; --drain:#b4532a;
+  --f-display:"Barlow Condensed","Roboto Condensed","Arial Narrow",sans-serif;
+  --f-body:"Barlow","Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1417; --panel:#172024; --panel-2:#1f2a2f; --line:#2a373d;
+  --fg:#e7ede9; --muted:#8fa199; --accent:#f0a33a;
+  --ok:#3ccf82; --warn:#f2b844; --bad:#ff6b5a; --charge:#3ccf82; --drain:#ff9a6b; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1417; --panel:#172024; --panel-2:#1f2a2f; --line:#2a373d;
+  --fg:#e7ede9; --muted:#8fa199; --accent:#f0a33a;
+  --ok:#3ccf82; --warn:#f2b844; --bad:#ff6b5a; --charge:#3ccf82; --drain:#ff9a6b; color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;-webkit-tap-highlight-color:transparent}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
+.big .soft{font-size:20px;color:var(--muted);font-weight:500}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.4;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-top:calc(12px + env(safe-area-inset-top,0px));padding-bottom:calc(32px + env(safe-area-inset-bottom,0px))}
+.wrap{max-width:980px;margin:0 auto;display:grid;gap:14px}
+.num{font-family:var(--f-display);font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.lbl{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+button{font:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Cabeçalho */
+header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+header h1{font-family:var(--f-display);font-weight:700;font-size:26px;margin:0;letter-spacing:.02em;text-wrap:balance}
+header h1 span{color:var(--accent)}
+.mode{font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.mode.demo{border-color:var(--accent);color:var(--accent)}
+
+/* Faixa de conexão */
+.conn{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.dev{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);
+  background:var(--panel);color:var(--fg);text-align:left;min-width:0}
+.dev .name{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.dev .st{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.dev[data-s="on"] .dot{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
+.dev[data-s="busy"] .dot{background:var(--warn);animation:pulse 1s infinite}
+.dev[data-s="err"] .dot{background:var(--bad)}
+@keyframes pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.dev[data-s="busy"] .dot{animation:none}}
+
+/* Mostrador principal */
+.hero{display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.gauge{position:relative;width:170px;height:170px}
+.gauge svg{width:100%;height:100%}
+.gauge .center{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.gauge .pct{font-size:52px;font-weight:700;line-height:1}
+.gauge .pct small{font-size:24px;color:var(--muted)}
+.gauge .src{font-size:11px;color:var(--muted);margin-top:2px}
+.hero-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px}
+.big{font-size:34px;font-weight:600;line-height:1.05}
+.big .u{font-size:18px;color:var(--muted);margin-left:2px}
+.state{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:13px;padding:3px 10px;border-radius:999px;background:var(--panel-2)}
+.state.chg{color:var(--charge)} .state.dis{color:var(--drain)}
+
+/* Fluxo de energia */
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.fl{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
+.fl .v{font-size:26px;font-weight:600;line-height:1.1;margin-top:2px}
+.fl .v .u{font-size:15px;color:var(--muted)}
+.fl .sub{font-size:12.5px;color:var(--muted)}
+
+/* Cartões de aparelho */
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0;display:grid;gap:10px;align-content:start}
+.card h2{margin:0;font-family:var(--f-display);font-size:19px;font-weight:600;letter-spacing:.03em;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.card h2 .model{font-family:var(--f-body);font-size:12px;color:var(--muted);font-weight:500;text-align:right}
+.rows{display:grid;gap:0}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:5px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row .k{color:var(--muted);font-size:13.5px}
+.row .val{font-family:var(--f-display);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--panel-2);color:var(--muted)}
+.chip.on{color:var(--ok)} .chip.alert{color:var(--bad);background:color-mix(in srgb,var(--bad) 14%,var(--panel))}
+.cells{display:grid;grid-template-columns:repeat(auto-fill,minmax(54px,1fr));gap:5px}
+.cell{background:var(--panel-2);border-radius:6px;padding:4px 2px;text-align:center;font-family:var(--f-display);font-size:15px;font-variant-numeric:tabular-nums}
+.cell small{display:block;font-family:var(--f-body);font-size:10px;color:var(--muted)}
+.cell.hi{box-shadow:inset 0 -2px 0 var(--warn)} .cell.lo{box-shadow:inset 0 -2px 0 var(--drain)}
+.age{font-size:12px;color:var(--muted)}
+.card.off{opacity:.55}
+
+.foot{font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between}
+.foot button{background:none;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:6px 10px}
+.notice{background:var(--panel);border:1px solid var(--accent);border-radius:10px;padding:10px 12px;font-size:13.5px}
+.notice b{color:var(--accent)}
+
+@media (max-width:760px){
+  .cards{grid-template-columns:minmax(0,1fr)}
+  .flow{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:480px){
+  .hero{grid-template-columns:minmax(0,1fr);justify-items:center}
+  .hero-stats{width:100%}
+  .conn{grid-template-columns:minmax(0,1fr)}
+  .dev{flex-direction:row;justify-content:space-between;align-items:center}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Painel <span>Motorhome</span></h1>
+    <span class="mode demo" id="mode">Demonstração</span>
+  </header>
+
+  <div class="notice" id="btNotice" hidden></div>
+
+  <div class="conn">
+    <button class="dev" id="btn-bms" data-s="off" aria-label="Conectar BMS da bateria">
+      <span class="name">BMS Daly</span><span class="st"><span class="dot"></span><span class="txt">Toque para conectar</span></span>
+    </button>
+    <button class="dev" id="btn-kg" data-s="off" aria-label="Conectar monitor de bateria KG">
+      <span class="name">Monitor KG Junctek</span><span class="st"><span class="dot"></span><span class="txt">Toque para conectar</span></span>
+    </button>
+    <button class="dev" id="btn-chg" data-s="off" aria-label="Conectar carregador">
+      <span class="name">Carregador OLYS</span><span class="st"><span class="dot"></span><span class="txt">Toque para conectar</span></span>
+    </button>
+  </div>
+
+  <section class="hero" aria-label="Bateria da casa">
+    <div class="gauge">
+      <svg viewBox="0 0 170 170" aria-hidden="true">
+        <circle cx="85" cy="85" r="72" fill="none" stroke="var(--panel-2)" stroke-width="14" stroke-dasharray="339.3 452.4" transform="rotate(135 85 85)" stroke-linecap="round"/>
+        <circle id="gArc" cx="85" cy="85" r="72" fill="none" stroke="var(--ok)" stroke-width="14" stroke-dasharray="0 452.4" transform="rotate(135 85 85)" stroke-linecap="round"/>
+      </svg>
+      <div class="center"><div class="pct num" id="soc">--<small>%</small></div><div class="src" id="socSrc">carga</div></div>
+    </div>
+    <div class="hero-stats">
+      <div><div class="lbl">Tensão</div><div class="big num" id="hV">--<span class="u">V</span></div></div>
+      <div><div class="lbl">Corrente</div><div class="big num" id="hA">--<span class="u">A</span></div></div>
+      <div><div class="lbl">Potência</div><div class="big num" id="hW">--<span class="u">W</span></div></div>
+      <div><div class="lbl">Autonomia</div><div class="big num" id="hT">--</div></div>
+      <div style="grid-column:1/-1"><span class="state" id="hState">Sem dados</span></div>
+    </div>
+  </section>
+
+  <section class="flow" aria-label="Fluxo de energia">
+    <div class="fl"><div class="lbl">Solar</div><div class="v num" id="fSolar">--<span class="u">W</span></div><div class="sub" id="fSolarSub">painel --</div></div>
+    <div class="fl"><div class="lbl">Carregador → bateria</div><div class="v num" id="fChg">--<span class="u">W</span></div><div class="sub" id="fChgSub">-- A</div></div>
+    <div class="fl"><div class="lbl">Consumo estimado</div><div class="v num" id="fLoad">--<span class="u">W</span></div><div class="sub">carga menos saldo</div></div>
+    <div class="fl"><div class="lbl">Bateria do motor</div><div class="v num" id="fStart">--<span class="u">V</span></div><div class="sub" id="fStartSub">via carregador</div></div>
+  </section>
+
+  <section class="cards">
+    <article class="card" id="card-bms">
+      <h2>Bateria (BMS) <span class="model" id="bmsModel">Daly</span></h2>
+      <div class="rows">
+        <div class="row"><span class="k">Carga</span><span class="val" id="b-soc">--</span></div>
+        <div class="row"><span class="k">Tensão total</span><span class="val" id="b-v">--</span></div>
+        <div class="row"><span class="k">Corrente</span><span class="val" id="b-a">--</span></div>
+        <div class="row"><span class="k">Restante</span><span class="val" id="b-ah">--</span></div>
+        <div class="row"><span class="k">Diferença entre células</span><span class="val" id="b-diff">--</span></div>
+        <div class="row"><span class="k">Temperatura</span><span class="val" id="b-t">--</span></div>
+        <div class="row"><span class="k">Ciclos</span><span class="val" id="b-cyc">--</span></div>
+      </div>
+      <div class="chips" id="b-mos"></div>
+      <div class="cells" id="b-cells"></div>
+      <div class="age" id="b-age"></div>
+    </article>
+
+    <article class="card" id="card-kg">
+      <h2>Monitor KG <span class="model" id="kgModel">Junctek</span></h2>
+      <div class="rows">
+        <div class="row"><span class="k">Carga</span><span class="val" id="k-soc">--</span></div>
+        <div class="row"><span class="k">Tensão</span><span class="val" id="k-v">--</span></div>
+        <div class="row"><span class="k">Corrente</span><span class="val" id="k-a">--</span></div>
+        <div class="row"><span class="k">Potência</span><span class="val" id="k-w">--</span></div>
+        <div class="row"><span class="k">Restante</span><span class="val" id="k-ah">--</span></div>
+        <div class="row"><span class="k">Tempo restante</span><span class="val" id="k-life">--</span></div>
+        <div class="row"><span class="k">Temperatura</span><span class="val" id="k-t">--</span></div>
+      </div>
+      <div class="age" id="k-age"></div>
+    </article>
+
+    <article class="card" id="card-chg">
+      <h2>Carregador <span class="model" id="cModel">OLYS</span></h2>
+      <div class="rows">
+        <div class="row"><span class="k">Painel solar</span><span class="val" id="c-pv">--</span></div>
+        <div class="row"><span class="k">Saída p/ bateria</span><span class="val" id="c-bat">--</span></div>
+        <div class="row"><span class="k">Bateria do motor</span><span class="val" id="c-start">--</span></div>
+        <div class="row" id="c-auxRow"><span class="k">Bateria auxiliar</span><span class="val" id="c-aux">--</span></div>
+        <div class="row" id="c-loadRow"><span class="k">Saída de carga</span><span class="val" id="c-load">--</span></div>
+        <div class="row"><span class="k">Energia acumulada</span><span class="val" id="c-wh">--</span></div>
+      </div>
+      <div class="chips" id="c-flags"></div>
+      <div class="age" id="c-age"></div>
+    </article>
+  </section>
+
+  <div class="foot">
+    <span>Feche os apps originais antes de conectar: cada aparelho aceita só uma conexão. Deixe o Bluetooth e a Localização do celular ligados.</span>
+    <span style="display:flex;gap:8px"><button id="btnDemo">Ver demonstração</button><button id="btnInstall" hidden>Instalar app</button></span>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============ utilidades ============ */
+const $ = id => document.getElementById(id);
+const hex = a => Array.from(a, x => x.toString(16).padStart(2, "0")).join(" ");
+const fmt = (v, d = 1) => (v == null || !isFinite(v)) ? "--" : v.toLocaleString("pt-BR", {minimumFractionDigits: d, maximumFractionDigits: d});
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+function crc16(bytes) { // Modbus, como no app Daly
+  let c = 0xFFFF;
+  for (const x of bytes) { c ^= x; for (let i = 0; i < 8; i++) c = (c & 1) ? (c >> 1) ^ 0xA001 : c >> 1; }
+  return [c & 255, c >> 8];
+}
+const UUID = s => s.length === 4 ? `0000${s}-0000-1000-8000-00805f9b34fb` : s.toLowerCase();
+
+/* ============ estado ============ */
+const S = { bms: null, kg: null, chg: null, t: { bms: 0, kg: 0, chg: 0 }, live: { bms: false, kg: false, chg: false } };
+let demo = true;
+
+/* ============ decodificadores (extraídos dos apps oficiais) ============ */
+
+// --- Junctek KG: quadros BB ... EE, valores em BCD seguidos de um byte-etiqueta >= 0xA0
+const KG_TAGS = new Set([0xb0,0xb1,0xb2,0xb3,0xb4,0xb5,0xb6,0xb7,0xc0,0xc1,0xc2,0xc3,0xc4,0xc5,0xc6,0xc7,0xc8,0xc9,
+  0xd0,0xd1,0xd2,0xd3,0xd4,0xd5,0xd6,0xd7,0xd8,0xd9,0xe0,0xe1]);
+function makeKG() {
+  let buf = [], inFrame = false;
+  const reg = {};
+  return {
+    reg,
+    feed(bytes) {
+      const out = [];
+      for (const b of bytes) {
+        if (b === 0xBB) { inFrame = true; buf = []; continue; }
+        if (!inFrame) continue;
+        if (b === 0xEE) { inFrame = false; out.push(parseKGFrame(buf, reg)); continue; }
+        buf.push(b);
+        if (buf.length > 200) { inFrame = false; buf = []; }
+      }
+      return out.length > 0;
+    }
+  };
+}
+function parseKGFrame(frame, reg) {
+  let acc = 0;
+  for (const b of frame) {
+    if (b >= 0xA0) { if (KG_TAGS.has(b)) reg[b] = acc; acc = 0; }
+    else acc = acc * 100 + (b >> 4) * 10 + (b & 15);
+  }
+}
+function kgValues(reg) {
+  const has = k => reg[k] != null;
+  const v = has(0xc0) ? reg[0xc0] / 100 : null;
+  const aAbs = has(0xc1) ? reg[0xc1] / 100 : null;
+  const charging = has(0xd1) ? reg[0xd1] === 1 : null;    // app: d1 = 1 → carregando
+  const a = aAbs == null ? null : (charging === false ? -aAbs : aAbs);
+  const ah = has(0xd2) ? reg[0xd2] / 1000 : null;
+  const cap = has(0xb0) ? reg[0xb0] / 10 : null;
+  return {
+    v, a, charging,
+    w: has(0xd8) ? reg[0xd8] / 100 : (v != null && aAbs != null ? v * aAbs : null),
+    ah, cap,
+    soc: (ah != null && cap) ? Math.min(100, ah / cap * 100) : null,
+    lifeMin: has(0xd6) ? reg[0xd6] : null,
+    temp: has(0xd9) && reg[0xd9] - 100 >= -20 ? reg[0xd9] - 100 : null,
+    model: has(0xe0) ? reg[0xe0] : null
+  };
+}
+
+// --- Daly Smart BMS (série H/K/M/S): Modbus D2 03, 62 registradores
+const DALY_READ = (() => { const c = [0xD2, 0x03, 0x00, 0x00, 0x00, 0x3E]; return new Uint8Array([...c, ...crc16(c)]); })();
+function makeDaly() {
+  let buf = [];
+  let last = null;
+  return {
+    get last() { return last; },
+    feed(bytes) {
+      buf.push(...bytes);
+      let got = false;
+      while (buf.length >= 5) {
+        const i = buf.findIndex((x, j) => x === 0xD2 && buf[j + 1] === 0x03);
+        if (i < 0) { buf = buf.slice(-1); break; }
+        if (i > 0) buf = buf.slice(i);
+        const len = buf[2], total = 3 + len + 2;
+        if (buf.length < total) break;
+        const frame = buf.slice(0, total);
+        const [lo, hi] = crc16(frame.slice(0, total - 2));
+        if (frame[total - 2] === lo && frame[total - 1] === hi && len >= 116) {
+          const r = [];
+          for (let k = 0; k < len / 2; k++) r.push((frame[3 + 2 * k] << 8) | frame[4 + 2 * k]);
+          last = dalyValues(r); got = true;
+          buf = buf.slice(total);
+        } else buf = buf.slice(1);
+      }
+      if (buf.length > 600) buf = [];
+      return got;
+    }
+  };
+}
+function dalyValues(r) {
+  const n = Math.min(r[49] || 0, 32), nt = Math.min(r[50] || 0, 8);
+  const cells = []; for (let i = 0; i < n; i++) cells.push(r[i] / 1000);
+  const temps = []; for (let i = 0; i < nt; i++) temps.push(r[32 + i] - 40);
+  return {
+    cells, temps,
+    v: r[40] / 10, a: (r[41] - 30000) / 10, soc: r[42] / 10,
+    cellMax: r[43] / 1000, cellMin: r[44] / 1000,
+    ah: r[48] / 10, cycles: r[51],
+    chgMos: r[53] === 1, disMos: r[54] === 1,
+    cellAvg: r[55] / 1000, diffmV: r[56], power: r[57]
+  };
+}
+
+// --- OLYS ChargerConnect: serviço 18F0, quadros FF E1 (tipo) e FF E2 (40 bytes)
+const OLYS_TYPES = {1:"MPPT 5012",2:"MPPT 5020",3:"MPPT 5010",4:"DC-DC + MPPT",5:"DC-DC (B2B)",6:"Carregador AC",7:"Bateria dupla",
+  8:"BSF",9:"BSF",10:"ABS",11:"ABS",12:"MPPT 7512",13:"MPPT 7512",14:"MPPT 7512",16:"DC-DC + MPPT",17:"DC-DC + MPPT",
+  20:"DC-DC (B2B)",21:"DC-DC (B2B)",22:"DC-DC (B2B)",23:"DC-DC + solar",24:"DC-DC + solar",25:"DC-DC + solar"};
+const OLYS_CMD = { type: new Uint8Array([0xFF,0xE1,0x01,0xE2]), data: new Uint8Array([0xFF,0xE2,0x02,0xE4]), beat: new Uint8Array([0xFF,0xC2,0x02,0xC4]) };
+function makeOlys() {
+  let buf = [];
+  let last = null, type = null;
+  return {
+    get last() { return last; }, get type() { return type; },
+    feed(bytes) {
+      buf.push(...bytes);
+      let got = false;
+      while (buf.length >= 4) {
+        const i = buf.findIndex((x, j) => x === 0xFF && (buf[j + 1] === 0xE1 || buf[j + 1] === 0xE2));
+        if (i < 0) { buf = buf.slice(-1); break; }
+        if (i > 0) buf = buf.slice(i);
+        const len = buf[1] === 0xE1 ? 4 : 40;
+        if (buf.length < len) break;
+        const f = buf.slice(0, len);
+        let s = 0; for (let k = (f[1] === 0xE1 ? 1 : 2); k < len - 1; k++) s += f[k];
+        if ((s & 255) === f[len - 1]) {
+          if (f[1] === 0xE1) type = f[2]; else { last = olysValues(f); got = true; }
+          buf = buf.slice(len);
+        } else buf = buf.slice(1);
+      }
+      if (buf.length > 400) buf = [];
+      return got;
+    }
+  };
+}
+function olysValues(b) {
+  const u16 = i => (b[i] << 8) | b[i + 1], u24 = i => (b[i] << 16) | (b[i + 1] << 8) | b[i + 2];
+  const st = b[21];
+  const start2 = u16(34) / 10;
+  return {
+    batA: u16(2) / 10, batV: u16(4) / 100,
+    auxA: u16(6) / 10, auxV: u16(8) / 100,
+    pvW: u16(10), pvV: u16(12) / 10,
+    loadA: u16(14) / 10, loadV: u16(16) / 10, loadW: u16(18),
+    startV: start2 > 0 ? start2 : b[20] / 10,
+    charging: !!(st & 64), auxCharging: !!(st & 32), full: !!(st & 16),
+    overTemp: !(st & 8), batOver: !(st & 4), pvOver: !(st & 2), batUnder: !(st & 1),
+    ah: u24(22), wh: u24(25)
+  };
+}
+
+/* ============ Bluetooth ============ */
+const DEV = {
+  bms: { label: "BMS Daly", svc: "fff0", rx: "fff1", tx: "fff2", parser: makeDaly(), pollMs: 2000,
+         init: async w => { await w(DALY_READ); }, poll: async w => { await w(DALY_READ); } },
+  kg:  { label: "Monitor KG", svc: "fff0", rx: "fff1", tx: "fff2", parser: makeKG(), pollMs: 30000,
+         init: async w => { await w(new Uint8Array([0xBB,0x9A,0xA9,0x10,0xEE])); }, poll: async w => { await w(new Uint8Array([0xBB,0x9A,0xA9,0x10,0xEE])); } },
+  chg: { label: "Carregador", svc: "18f0", rx: "2af0", tx: "2af1", parser: makeOlys(), pollMs: 2000,
+         init: async w => { await w(OLYS_CMD.type); await sleep(150); await w(OLYS_CMD.data); },
+         poll: async (w, d) => { await w(OLYS_CMD.beat); if (Date.now() - S.t.chg > 5000) await w(OLYS_CMD.data); } }
+};
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const btOK = !!(navigator.bluetooth && navigator.bluetooth.requestDevice);
+
+function setDev(key, s, txt) {
+  const b = $("btn-" + key); b.dataset.s = s; b.querySelector(".txt").textContent = txt;
+}
+
+async function connect(key, device) {
+  const d = DEV[key];
+  if (!btOK) { showBtNotice(); return; }
+  try {
+    if (!device) {
+      setDev(key, "busy", "Escolha o aparelho na lista…");
+      device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [UUID("fff0"), UUID("18f0")] });
+    }
+    // o mesmo aparelho não pode ocupar duas posições
+    for (const other of Object.keys(DEV)) if (other !== key && DEV[other].device && DEV[other].device.id === device.id) {
+      setDev(key, "err", "Esse aparelho já está em outra posição"); return;
+    }
+    d.device = device;
+    const ids = store.get("mh-devices", {}); ids[key] = device.id; store.set("mh-devices", ids);
+    const names = store.get("mh-names", {}); names[key] = device.name || ""; store.set("mh-names", names);
+    $("btn-" + key).querySelector(".name").textContent = device.name || d.label;
+    if (!d.bound) { device.addEventListener("gattserverdisconnected", () => onDrop(key)); d.bound = true; }
+    await open(key);
+  } catch (e) {
+    if (e && e.name === "NotFoundError") setDev(key, "off", "Toque para conectar");
+    else setDev(key, "err", erro(e));
+  }
+}
+
+async function open(key) {
+  const d = DEV[key];
+  if (d.opening) return;
+  d.opening = true;
+  try {
+    setDev(key, "busy", "Conectando…");
+    const server = await withTimeout(d.device.gatt.connect(), 15000);
+    const svc = await server.getPrimaryService(UUID(d.svc));
+    const rx = await svc.getCharacteristic(UUID(d.rx));
+    let tx;
+    try { tx = await svc.getCharacteristic(UUID(d.tx)); } catch (e) { tx = rx; }
+    d.write = async bytes => {
+      try {
+        if (tx.properties.writeWithoutResponse && tx.writeValueWithoutResponse) await tx.writeValueWithoutResponse(bytes);
+        else if (tx.writeValueWithResponse) await tx.writeValueWithResponse(bytes);
+        else await tx.writeValue(bytes);
+      } catch (e) { /* uma escrita perdida não derruba a conexão */ }
+    };
+    if (d.rxChar) d.rxChar.removeEventListener("characteristicvaluechanged", d.onRx);
+    d.onRx = ev => {
+      const v = ev.target.value, bytes = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+      try { if (d.parser.feed(bytes)) onData(key); } catch (e) {}
+    };
+    rx.addEventListener("characteristicvaluechanged", d.onRx);
+    d.rxChar = rx;
+    await rx.startNotifications();
+    setDev(key, "on", "Conectado, aguardando dados…");
+    await sleep(300);
+    await d.init(d.write);
+    clearInterval(d.timer);
+    d.timer = setInterval(() => {
+      if (!d.device.gatt.connected) return;
+      d.poll(d.write, d);
+      const t = S.t[key];
+      if (t && Date.now() - t > Math.max(20000, d.pollMs * 2 + 5000)) setDev(key, "err", "Conectado, mas sem dados recentes");
+    }, d.pollMs);
+    clearTimeout(d.noData);
+    d.noData = setTimeout(() => { if (!S.t[key] && d.device.gatt.connected) setDev(key, "err", "Conectado, sem resposta. É o aparelho certo?"); }, 12000);
+  } catch (e) {
+    try { d.device.gatt.disconnect(); } catch (_) {}
+    throw e;
+  } finally { d.opening = false; }
+}
+
+function withTimeout(p, ms) {
+  return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("Tempo esgotado ao conectar")), ms))]);
+}
+
+async function onDrop(key) {
+  const d = DEV[key];
+  clearInterval(d.timer); clearTimeout(d.noData);
+  S.live[key] = false; render();
+  if (d.reconnecting || d.opening) return;
+  d.reconnecting = true;
+  try {
+    for (let tentativa = 1; tentativa <= 60; tentativa++) {
+      setDev(key, "busy", `Sinal perdido, reconectando (${tentativa})…`);
+      await sleep(Math.min(2000 * tentativa, 15000));
+      if (d.device.gatt.connected) return;
+      try { await open(key); return; } catch (e) {}
+    }
+    setDev(key, "err", "Sem sinal. Toque para tentar de novo");
+  } finally { d.reconnecting = false; }
+}
+
+function erro(e) {
+  const m = (e && (e.message || e.name)) || "erro";
+  if (e && e.name === "SecurityError") return "Toque de novo para conectar";
+  if (/service|UUID|characteristic/i.test(m)) return "Aparelho errado? Toque e escolha outro";
+  if (/GATT|connect|Tempo/i.test(m)) return "Não conectou. Feche o app original e toque de novo";
+  return m.slice(0, 60);
+}
+
+async function autoReconnect() {
+  const names = store.get("mh-names", {});
+  for (const key of Object.keys(DEV)) if (names[key]) {
+    $("btn-" + key).querySelector(".name").textContent = names[key];
+    setDev(key, "off", "Toque para reconectar");
+  }
+  if (!navigator.bluetooth || !navigator.bluetooth.getDevices) return;
+  try {
+    const ids = store.get("mh-devices", {});
+    const known = await navigator.bluetooth.getDevices();
+    for (const key of Object.keys(DEV)) {
+      const dev = known.find(x => x.id === ids[key]);
+      if (dev) connect(key, dev);
+    }
+  } catch (e) {}
+}
+
+function onData(key) {
+  { const bt = $("btn-" + key); if (bt.dataset.s !== "on" || bt.querySelector(".txt").textContent !== "Recebendo dados") setDev(key, "on", "Recebendo dados"); }
+  if (demo) { demo = false; clearInterval(demoTimer); S.bms = S.kg = S.chg = null; }
+  S.t[key] = Date.now(); S.live[key] = true;
+  if (key === "bms") S.bms = DEV.bms.parser.last;
+  if (key === "kg") S.kg = kgValues(DEV.kg.parser.reg);
+  if (key === "chg") S.chg = Object.assign({}, DEV.chg.parser.last, { type: DEV.chg.parser.type });
+  render();
+}
+
+function showBtNotice() {
+  const n = $("btNotice");
+  n.innerHTML = "<b>Bluetooth indisponível neste navegador.</b> Use o Chrome no Android (ou no computador). No iPhone o Safari não tem Web Bluetooth.";
+  n.hidden = false;
+}
+
+/* ============ desenho ============ */
+const put = (id, html) => { const el = $(id); if (el) el.innerHTML = html; };
+const u = (v, unit, d = 1) => v == null ? "--" : `${fmt(v, d)}<span class="u">${unit}</span>`;
+const hm = min => min == null || !isFinite(min) || min < 0 ? "--" : (min >= 6000 ? "> 99 h" : `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, "0")}`);
+
+function render() {
+  const b = S.bms, k = S.kg, c = S.chg;
+
+  // Bateria da casa: BMS primeiro, KG como reserva
+  const soc = b ? b.soc : k ? k.soc : null;
+  const V = b ? b.v : k ? k.v : null;
+  const A = b ? b.a : k ? k.a : null;
+  const capRest = b ? b.ah : k ? k.ah : null;
+  $("soc").innerHTML = soc == null ? "--<small>%</small>" : `${Math.round(soc)}<small>%</small>`;
+  $("socSrc").textContent = b ? "pelo BMS" : k ? "pelo monitor KG" : "carga";
+  const arc = $("gArc");
+  arc.setAttribute("stroke-dasharray", `${(soc == null ? 0 : Math.max(0, Math.min(100, soc)) / 100 * 339.3).toFixed(1)} 452.4`);
+  arc.setAttribute("stroke", soc == null ? "var(--muted)" : soc < 20 ? "var(--bad)" : soc < 40 ? "var(--warn)" : "var(--ok)");
+  put("hV", u(V, "V", 2));
+  put("hA", A == null ? '--<span class="u">A</span>' : `${A > 0 ? "+" : ""}${fmt(A, 1)}<span class="u">A</span>`);
+  put("hW", V == null || A == null ? '--<span class="u">W</span>' : `${A > 0 ? "+" : ""}${fmt(V * A, 0)}<span class="u">W</span>`);
+  let life = null;
+  if (k && k.lifeMin != null && k.charging === false) life = k.lifeMin;
+  else if (A != null && A < -0.3 && capRest != null) life = capRest / -A * 60;
+  put("hT", A != null && A >= -0.3 ? `<span class="soft">${A > 0.3 ? "em carga" : "em repouso"}</span>` : hm(life));
+  const st = $("hState");
+  if (A == null) { st.className = "state"; st.textContent = "Sem dados"; }
+  else if (A > 0.3) { st.className = "state chg"; st.textContent = "▲ Carregando"; }
+  else if (A < -0.3) { st.className = "state dis"; st.textContent = "▼ Descarregando"; }
+  else { st.className = "state"; st.textContent = "Em repouso"; }
+
+  // Fluxo
+  put("fSolar", u(c ? c.pvW : null, "W", 0));
+  $("fSolarSub").textContent = c ? `painel ${fmt(c.pvV, 1)} V` : "painel --";
+  const chgW = c ? c.batV * c.batA : null;
+  put("fChg", u(chgW, "W", 0));
+  $("fChgSub").textContent = c ? `${fmt(c.batA, 1)} A a ${fmt(c.batV, 2)} V` : "-- A";
+  const net = V != null && A != null ? V * A : null;
+  put("fLoad", u(chgW != null && net != null ? Math.max(0, chgW - net) : (net != null && net < 0 ? -net : null), "W", 0));
+  put("fStart", u(c ? c.startV : null, "V", 1));
+
+  // Cartão BMS
+  $("card-bms").classList.toggle("off", !b);
+  put("b-soc", b ? `${fmt(b.soc, 1)} %` : "--");
+  put("b-v", b ? `${fmt(b.v, 1)} V` : "--");
+  put("b-a", b ? `${b.a > 0 ? "+" : ""}${fmt(b.a, 1)} A` : "--");
+  put("b-ah", b ? `${fmt(b.ah, 1)} Ah` : "--");
+  put("b-diff", b ? `${b.diffmV} mV` : "--");
+  put("b-t", b && b.temps.length ? b.temps.map(t => `${t} °C`).join(" · ") : "--");
+  put("b-cyc", b ? String(b.cycles) : "--");
+  put("b-mos", b ? `<span class="chip ${b.chgMos ? "on" : "alert"}">Carga ${b.chgMos ? "ligada" : "desligada"}</span><span class="chip ${b.disMos ? "on" : "alert"}">Descarga ${b.disMos ? "ligada" : "desligada"}</span>` : "");
+  put("b-cells", b ? b.cells.map((v, i) => `<div class="cell ${v === b.cellMax && b.diffmV > 10 ? "hi" : v === b.cellMin && b.diffmV > 10 ? "lo" : ""}"><small>C${i + 1}</small>${v.toFixed(3)}</div>`).join("") : "");
+
+  // Cartão KG
+  $("card-kg").classList.toggle("off", !k);
+  if (k && k.model) $("kgModel").textContent = `KG${k.model % 1000}${Math.floor(k.model / 1000) === 1 ? "H" : "F"}`;
+  put("k-soc", k && k.soc != null ? `${fmt(k.soc, 0)} %` : "--");
+  put("k-v", k ? `${fmt(k.v, 2)} V` : "--");
+  put("k-a", k && k.a != null ? `${k.a > 0 ? "+" : ""}${fmt(k.a, 2)} A` : "--");
+  put("k-w", k ? `${fmt(k.w, 0)} W` : "--");
+  put("k-ah", k && k.ah != null ? `${fmt(k.ah, 1)}${k.cap ? ` / ${fmt(k.cap, 0)}` : ""} Ah` : "--");
+  put("k-life", k ? hm(k.lifeMin) : "--");
+  put("k-t", k && k.temp != null ? `${k.temp} °C` : "sem sensor");
+
+  // Cartão carregador
+  $("card-chg").classList.toggle("off", !c);
+  if (c && c.type != null) $("cModel").textContent = OLYS_TYPES[c.type] || `Modelo ${c.type}`;
+  put("c-pv", c ? `${fmt(c.pvW, 0)} W · ${fmt(c.pvV, 1)} V` : "--");
+  put("c-bat", c ? `${fmt(c.batA, 1)} A · ${fmt(c.batV, 2)} V` : "--");
+  put("c-start", c ? `${fmt(c.startV, 1)} V` : "--");
+  $("c-auxRow").hidden = !!c && !(c.auxV > 0);
+  put("c-aux", c ? `${fmt(c.auxA, 1)} A · ${fmt(c.auxV, 2)} V` : "--");
+  $("c-loadRow").hidden = !!c && !(c.loadV > 0);
+  put("c-load", c ? `${fmt(c.loadW, 0)} W · ${fmt(c.loadA, 1)} A` : "--");
+  put("c-wh", c ? (c.wh >= 10000 ? `${fmt(c.wh / 1000, 2)} kWh` : `${c.wh} Wh`) + ` · ${c.ah >= 10000 ? fmt(c.ah / 1000, 2) + " kAh" : c.ah + " Ah"}` : "--");
+  if (c) {
+    const f = [];
+    f.push(c.full ? `<span class="chip on">Carga completa</span>` : c.charging ? `<span class="chip on">Carregando</span>` : `<span class="chip">Parado</span>`);
+    if (c.overTemp) f.push(`<span class="chip alert">Superaquecimento</span>`);
+    if (c.batOver) f.push(`<span class="chip alert">Sobretensão bateria</span>`);
+    if (c.pvOver) f.push(`<span class="chip alert">Sobretensão painel</span>`);
+    if (c.batUnder) f.push(`<span class="chip alert">Bateria baixa</span>`);
+    put("c-flags", f.join(""));
+  } else put("c-flags", "");
+
+  ages();
+  $("mode").textContent = demo ? "Demonstração" : "Ao vivo";
+  $("mode").classList.toggle("demo", demo);
+}
+
+function ages() {
+  for (const [key, id] of [["bms", "b-age"], ["kg", "k-age"], ["chg", "c-age"]]) {
+    const t = S.t[key];
+    $(id).textContent = demo ? "dados de exemplo" : !t ? "aguardando conexão" : `atualizado há ${Math.max(0, Math.round((Date.now() - t) / 1000))} s`;
+  }
+}
+setInterval(ages, 1000);
+
+/* ============ demonstração (valores fictícios) ============ */
+let demoTimer = null, ph = 0;
+function demoTick() {
+  ph += 0.05;
+  const solar = Math.max(0, 260 + 90 * Math.sin(ph)), batV = 13.32 + 0.05 * Math.sin(ph);
+  const chgA = solar / batV * 0.95, loadA = 9 + 3 * Math.sin(ph * 2.3);
+  const net = chgA - loadA;
+  const cells = [3.331, 3.329, 3.334, 3.327].map((v, i) => v + 0.002 * Math.sin(ph + i));
+  S.bms = { cells, temps: [24, 25], v: batV, a: net, soc: 78 + 2 * Math.sin(ph / 3), cellMax: Math.max(...cells), cellMin: Math.min(...cells),
+            ah: 156, cycles: 87, chgMos: true, disMos: true, cellAvg: 3.33, diffmV: Math.round((Math.max(...cells) - Math.min(...cells)) * 1000), power: Math.abs(net * batV) };
+  S.kg = { v: batV - 0.01, a: net, charging: net > 0, w: Math.abs(net * batV), ah: 157.2, cap: 200, soc: 78.6, lifeMin: net < 0 ? 157.2 / -net * 60 : null, temp: null, model: 2140 };
+  S.chg = { batA: chgA, batV: batV + 0.04, auxA: 0, auxV: 0, pvW: solar, pvV: 38.4, loadA: 0, loadV: 0, loadW: 0, startV: 12.6,
+            charging: true, auxCharging: false, full: false, overTemp: false, batOver: false, pvOver: false, batUnder: false, ah: 1840, wh: 24120, type: 4 };
+  render();
+}
+function startDemo() { demo = true; clearInterval(demoTimer); demoTick(); demoTimer = setInterval(demoTick, 1500); }
+
+/* ============ eventos ============ */
+for (const key of Object.keys(DEV)) $("btn-" + key).addEventListener("click", () => {
+  const d = DEV[key];
+  if (d.opening || d.reconnecting) return;
+  if (d.device && d.device.gatt.connected) return;
+  if (d.device) open(key).catch(e => setDev(key, "err", erro(e)));
+  else connect(key);
+});
+let installEvt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("btnInstall").hidden = false; });
+$("btnInstall").addEventListener("click", async () => { if (!installEvt) return; installEvt.prompt(); try { await installEvt.userChoice; } catch (e) {} installEvt = null; $("btnInstall").hidden = true; });
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
+$("btnDemo").addEventListener("click", () => { if (!Object.values(S.live).some(Boolean)) startDemo(); });
+
+if ("wakeLock" in navigator) {
+  const lock = () => navigator.wakeLock.request("screen").catch(() => {});
+  lock(); document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") lock(); });
+}
+
+startDemo();
+autoReconnect();
+if (!btOK) showBtNotice();
+window.__mh = { makeKG, kgValues, makeDaly, makeOlys, crc16, DALY_READ };
+</script>
+</body>
+</html>
