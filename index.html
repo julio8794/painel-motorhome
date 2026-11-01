@@ -129,7 +129,7 @@ header h1 span{color:var(--accent)}
 <div class="wrap">
   <header>
     <h1>Painel <span>Motorhome</span></h1>
-    <span class="mode demo" id="mode">Demonstração</span>
+    <span class="mode" id="mode">Desconectado</span>
   </header>
 
   <div class="notice" id="btNotice" hidden></div>
@@ -218,7 +218,7 @@ header h1 span{color:var(--accent)}
 
   <div class="foot">
     <span>Feche os apps originais antes de conectar: cada aparelho aceita só uma conexão. Deixe o Bluetooth e a Localização do celular ligados.</span>
-    <span style="display:flex;gap:8px"><button id="btnDemo">Ver demonstração</button><button id="btnInstall" hidden>Instalar app</button></span>
+    <span style="display:flex;gap:8px"><button id="btnInstall" hidden>Instalar app</button></span>
   </div>
 </div>
 
@@ -241,7 +241,6 @@ const UUID = s => s.length === 4 ? `0000${s}-0000-1000-8000-00805f9b34fb` : s.to
 
 /* ============ estado ============ */
 const S = { bms: null, kg: null, chg: null, t: { bms: 0, kg: 0, chg: 0 }, live: { bms: false, kg: false, chg: false } };
-let demo = true;
 
 /* ============ decodificadores (extraídos dos apps oficiais) ============ */
 
@@ -516,7 +515,6 @@ async function autoReconnect() {
 
 function onData(key) {
   { const bt = $("btn-" + key); if (bt.dataset.s !== "on" || bt.querySelector(".txt").textContent !== "Recebendo dados") setDev(key, "on", "Recebendo dados"); }
-  if (demo) { demo = false; clearInterval(demoTimer); S.bms = S.kg = S.chg = null; }
   S.t[key] = Date.now(); S.live[key] = true;
   if (key === "bms") S.bms = DEV.bms.parser.last;
   if (key === "kg") S.kg = kgValues(DEV.kg.parser.reg);
@@ -616,34 +614,18 @@ function render() {
   } else put("c-flags", "");
 
   ages();
-  $("mode").textContent = demo ? "Demonstração" : "Ao vivo";
-  $("mode").classList.toggle("demo", demo);
+  const nLive = Object.values(S.live).filter(Boolean).length;
+  $("mode").textContent = nLive ? `Ao vivo · ${nLive} de 3` : "Desconectado";
+  $("mode").classList.toggle("demo", nLive > 0);
 }
 
 function ages() {
   for (const [key, id] of [["bms", "b-age"], ["kg", "k-age"], ["chg", "c-age"]]) {
     const t = S.t[key];
-    $(id).textContent = demo ? "dados de exemplo" : !t ? "aguardando conexão" : `atualizado há ${Math.max(0, Math.round((Date.now() - t) / 1000))} s`;
+    $(id).textContent = !t ? "aguardando conexão" : `atualizado há ${Math.max(0, Math.round((Date.now() - t) / 1000))} s`;
   }
 }
 setInterval(ages, 1000);
-
-/* ============ demonstração (valores fictícios) ============ */
-let demoTimer = null, ph = 0;
-function demoTick() {
-  ph += 0.05;
-  const solar = Math.max(0, 260 + 90 * Math.sin(ph)), batV = 13.32 + 0.05 * Math.sin(ph);
-  const chgA = solar / batV * 0.95, loadA = 9 + 3 * Math.sin(ph * 2.3);
-  const net = chgA - loadA;
-  const cells = [3.331, 3.329, 3.334, 3.327].map((v, i) => v + 0.002 * Math.sin(ph + i));
-  S.bms = { cells, temps: [24, 25], v: batV, a: net, soc: 78 + 2 * Math.sin(ph / 3), cellMax: Math.max(...cells), cellMin: Math.min(...cells),
-            ah: 156, cycles: 87, chgMos: true, disMos: true, cellAvg: 3.33, diffmV: Math.round((Math.max(...cells) - Math.min(...cells)) * 1000), power: Math.abs(net * batV) };
-  S.kg = { v: batV - 0.01, a: net, charging: net > 0, w: Math.abs(net * batV), ah: 157.2, cap: 200, soc: 78.6, lifeMin: net < 0 ? 157.2 / -net * 60 : null, temp: null, model: 2140 };
-  S.chg = { batA: chgA, batV: batV + 0.04, auxA: 0, auxV: 0, pvW: solar, pvV: 38.4, loadA: 0, loadV: 0, loadW: 0, startV: 12.6,
-            charging: true, auxCharging: false, full: false, overTemp: false, batOver: false, pvOver: false, batUnder: false, ah: 1840, wh: 24120, type: 4 };
-  render();
-}
-function startDemo() { demo = true; clearInterval(demoTimer); demoTick(); demoTimer = setInterval(demoTick, 1500); }
 
 /* ============ eventos ============ */
 for (const key of Object.keys(DEV)) $("btn-" + key).addEventListener("click", () => {
@@ -657,14 +639,13 @@ let installEvt = null;
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("btnInstall").hidden = false; });
 $("btnInstall").addEventListener("click", async () => { if (!installEvt) return; installEvt.prompt(); try { await installEvt.userChoice; } catch (e) {} installEvt = null; $("btnInstall").hidden = true; });
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
-$("btnDemo").addEventListener("click", () => { if (!Object.values(S.live).some(Boolean)) startDemo(); });
 
 if ("wakeLock" in navigator) {
   const lock = () => navigator.wakeLock.request("screen").catch(() => {});
   lock(); document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") lock(); });
 }
 
-startDemo();
+render();
 autoReconnect();
 if (!btOK) showBtNotice();
 window.__mh = { makeKG, kgValues, makeDaly, makeOlys, crc16, DALY_READ };
