@@ -1,5 +1,5 @@
 // Painel Motorhome: funciona offline e sempre busca a versão nova quando há internet
-const VERSION = "v5";
+const VERSION = "v6";
 const CACHE = "painel-motorhome-" + VERSION;
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png"];
 
