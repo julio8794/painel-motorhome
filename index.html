@@ -209,7 +209,7 @@ input[type=range]{width:100%;accent-color:var(--amp);height:28px}
 
 <header class="top">
   <div class="top-in">
-    <h1>Painel <b>Motorhome</b></h1>
+    <h1>Painel <b>Motorhome</b> <small id="appVer" style="font-size:12px;color:var(--dim);font-weight:500">v5</small></h1>
     <div class="devdots" id="devdots">
       <button class="dd" data-k="bms" data-s="off" aria-label="BMS"><i></i><span>BMS</span></button>
       <button class="dd" data-k="kg" data-s="off" aria-label="Monitor KG"><i></i><span>KG</span></button>
@@ -419,8 +419,8 @@ input[type=range]{width:100%;accent-color:var(--amp);height:28px}
       </div>
 
       <h2 class="sec">Sobre</h2>
-      <div class="box hint">Painel Motorhome v3. Funciona sem internet depois de instalado; conversa com os aparelhos direto pelo Bluetooth do celular. Os dados ficam só neste celular.
-        <div class="actions" style="margin-top:10px"><button class="btn" id="btnInstall" hidden>Instalar app</button></div></div>
+      <div class="box hint">Painel Motorhome v5. Funciona sem internet depois de instalado; conversa com os aparelhos direto pelo Bluetooth do celular. Os dados ficam só neste celular.
+        <div class="actions" style="margin-top:10px"><button class="btn pri" id="btnUpdate">Atualizar app</button><button class="btn" id="btnInstall" hidden>Instalar app</button></div></div>
     </div>
   </section>
 </main>
@@ -1254,7 +1254,40 @@ let installEvt = null;
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("btnInstall").hidden = false; });
 $("btnInstall").addEventListener("click", async () => { if (!installEvt) return; installEvt.prompt(); try { await installEvt.userChoice; } catch (e) {} installEvt = null; $("btnInstall").hidden = true; });
 if ("wakeLock" in navigator) { const lock = () => navigator.wakeLock.request("screen").catch(() => {}); lock(); document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") lock(); }); }
-if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
+const APP_VER = "v5";
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => {
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+    setInterval(check, 30 * 60000);
+  }).catch(() => {});
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    // versão nova ativada: recarrega uma vez, só se nenhum aparelho estiver conectado
+    if (reloaded) return;
+    if (Object.values(DEV).some(d => d.device && d.device.gatt.connected)) { toast("Nova versão pronta. Toque em Ajustes → Atualizar app."); return; }
+    reloaded = true; location.reload();
+  });
+}
+async function forceUpdate() {
+  toast("Atualizando…");
+  try {
+    for (const k in DEV) if (DEV[k].device) { try { DEV[k].manual = true; DEV[k].device.gatt.disconnect(); } catch (e) {} }
+    if ("serviceWorker" in navigator) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+    if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
+  } catch (e) {}
+  location.replace(location.pathname + "?v=" + Date.now() + location.hash);
+}
+$("btnUpdate").addEventListener("click", forceUpdate);
+// avisa se existe versão mais nova publicada
+(async () => {
+  if (!navigator.onLine || location.protocol !== "https:") return;
+  try {
+    const t = await (await fetch("index.html?check=" + Date.now(), { cache: "no-store" })).text();
+    const m = t.match(/const APP_VER = "(v\d+)"/);
+    if (m && m[1] !== APP_VER) { $("btnUpdate").textContent = `Atualizar para ${m[1]}`; toast(`Versão ${m[1]} disponível: Ajustes → Atualizar.`); }
+  } catch (e) {}
+})();
 
 (async () => {
   HIST.db = await idb(); histPrune();
