@@ -28,7 +28,11 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - uses: android-actions/setup-android@v3
+      - name: SDK Android (já instalado no servidor)
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-/usr/local/lib/android/sdk}" >> $GITHUB_ENV
+          SDKM=$(ls -d ${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)
+          yes | "$SDKM" --licenses > /dev/null || true
 
       - name: Copiar o painel para o app
         run: |
