@@ -1,0 +1,80 @@
+name: App Android (APK)
+
+on:
+  push:
+    branches: [main]
+    paths: ["index.html", "manifest.webmanifest", "icons/**", "android-app/**", ".github/workflows/android.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Copiar o painel para o app
+        run: |
+          mkdir -p android-app/www/icons
+          cp index.html manifest.webmanifest android-app/www/
+          cp icons/* android-app/www/icons/
+
+      - name: Gerar projeto Android (Capacitor)
+        working-directory: android-app
+        run: |
+          npm install --no-audit --no-fund
+          npx cap add android
+          python3 scripts/patch_android.py ${{ github.run_number }}
+          npx cap sync android
+
+      - name: Compilar
+        working-directory: android-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Assinar o APK
+        env:
+          KS_B64: ${{ secrets.KS_B64 }}
+          KS_PASS: ${{ secrets.KS_PASS }}
+        run: |
+          BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > ks.jks
+          else
+            # chave fixa do projeto: mantém a mesma assinatura em todas as versões (instala por cima)
+            cp android-app/signing/painel-motorhome.jks ks.jks
+            KS_PASS=painelmotorhome
+          fi
+          "$ANDROID_HOME/build-tools/$BT/zipalign" -p -f 4 android-app/android/app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
+          "$ANDROID_HOME/build-tools/$BT/apksigner" sign --ks ks.jks --ks-pass pass:$KS_PASS --key-pass pass:$KS_PASS --out PainelMotorhome.apk aligned.apk
+          "$ANDROID_HOME/build-tools/$BT/apksigner" verify PainelMotorhome.apk
+          rm -f ks.jks
+
+      - name: Publicar versão
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-v${{ github.run_number }}
+          name: Painel Motorhome Android · build ${{ github.run_number }}
+          body: |
+            Baixe **PainelMotorhome.apk** no celular e instale (permita "instalar apps desconhecidos" para o navegador).
+            Link fixo para a versão mais recente: https://github.com/${{ github.repository }}/releases/latest/download/PainelMotorhome.apk
+          files: PainelMotorhome.apk
+          make_latest: true

@@ -1,0 +1,10 @@
+{
+  "appId": "br.julio.painelmotorhome",
+  "appName": "Painel Motorhome",
+  "webDir": "www",
+  "backgroundColor": "#0b0d1f",
+  "android": { "allowMixedContent": false },
+  "plugins": {
+    "LocalNotifications": { "smallIcon": "ic_stat_notify", "iconColor": "#33E4F0" }
+  }
+}

@@ -209,7 +209,7 @@ input[type=range]{width:100%;accent-color:var(--amp);height:28px}
 
 <header class="top">
   <div class="top-in">
-    <h1>Painel <b>Motorhome</b> <small id="appVer" style="font-size:12px;color:var(--dim);font-weight:500">v6</small></h1>
+    <h1>Painel <b>Motorhome</b> <small id="appVer" style="font-size:12px;color:var(--dim);font-weight:500">v7</small></h1>
     <div class="devdots" id="devdots">
       <button class="dd" data-k="bms" data-s="off" aria-label="BMS"><i></i><span>BMS</span></button>
       <button class="dd" data-k="kg" data-s="off" aria-label="Monitor KG"><i></i><span>KG</span></button>
@@ -418,8 +418,18 @@ input[type=range]{width:100%;accent-color:var(--amp);height:28px}
         <div class="field"><label>Zerar dados acumulados</label><button class="btn warn" data-kg="clear">Zerar</button></div>
       </div>
 
+      <div id="nativeBox" hidden>
+      <h2 class="sec">Segundo plano (app Android)</h2>
+      <div class="box form">
+        <div class="field"><label>Monitorar com o app minimizado<small id="kaInfo">aviso fixo na barra de notificação</small></label><input id="cfgBg" class="switch" type="checkbox"></div>
+        <div class="field"><label>Economia de bateria do Android<small id="battInfo">permita o app rodar sem restrição</small></label><button class="btn" id="btnBatt">Ajustar</button></div>
+        <div class="hint">Em celulares Xiaomi/Redmi, também ative <b>Inicialização automática</b> e escolha <b>Sem restrições</b> em Economia de bateria do app.</div>
+        <div class="actions"><button class="btn" id="btnAppSettings">Abrir configurações do app</button></div>
+      </div>
+      </div>
+
       <h2 class="sec">Sobre</h2>
-      <div class="box hint">Painel Motorhome v6. Funciona sem internet depois de instalado; conversa com os aparelhos direto pelo Bluetooth do celular. Os dados ficam só neste celular.
+      <div class="box hint">Painel Motorhome v7. Funciona sem internet depois de instalado; conversa com os aparelhos direto pelo Bluetooth do celular. Os dados ficam só neste celular.
         <div class="actions" style="margin-top:10px"><button class="btn pri" id="btnUpdate">Atualizar app</button><button class="btn" id="btnInstall" hidden>Instalar app</button></div></div>
     </div>
   </section>
@@ -455,6 +465,78 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 };
 const UUID = s => s.length === 4 ? `0000${s}-0000-1000-8000-00805f9b34fb` : s.toLowerCase();
+
+/* ================= app Android (Capacitor): Bluetooth nativo no lugar do Web Bluetooth ================= */
+const NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+const CP = NATIVE ? (window.Capacitor.Plugins || {}) : {};
+if (NATIVE && CP.BluetoothLe) {
+  const BLE = CP.BluetoothLe; let ready = null;
+  const init = () => ready || (ready = BLE.initialize({ androidNeverForLocation: false }).catch(e => { ready = null; throw e; }));
+  const low = u => String(u).toLowerCase();
+  const toDV = v => {
+    if (v instanceof DataView) return v;
+    const h = String(v || "").replace(/[^0-9a-f]/gi, ""), b = new Uint8Array(h.length >> 1);
+    for (let i = 0; i < b.length; i++) b[i] = parseInt(h.substr(i * 2, 2), 16);
+    return new DataView(b.buffer);
+  };
+  const toHex = v => { const u = v instanceof DataView ? new Uint8Array(v.buffer, v.byteOffset, v.byteLength) : new Uint8Array(v.buffer ? v.buffer : v, v.byteOffset || 0, v.byteLength); return Array.from(u, x => x.toString(16).padStart(2, "0")).join(""); };
+  const emitter = () => { const m = {}; return { on: (t, f) => (m[t] = m[t] || new Set()).add(f), off: (t, f) => m[t] && m[t].delete(f), emit: (t, e) => (m[t] || []).forEach(f => { try { f(e); } catch (x) {} }) }; };
+  function makeChar(dev, su, cu, props) {
+    const em = emitter(); let nl = null;
+    const ch = { uuid: cu, properties: props,
+      addEventListener: (t, f) => em.on(t, f), removeEventListener: (t, f) => em.off(t, f),
+      async startNotifications() {
+        if (nl) { try { await nl.remove(); } catch (e) {} }
+        nl = await BLE.addListener(`notification|${dev.id}|${su}|${cu}`, r => em.emit("characteristicvaluechanged", { target: { value: toDV(r && r.value) } }));
+        await BLE.startNotifications({ deviceId: dev.id, service: su, characteristic: cu });
+        return ch;
+      },
+      async readValue() { const r = await BLE.read({ deviceId: dev.id, service: su, characteristic: cu, timeout: 8000 }); return toDV(r.value); },
+      async writeValueWithResponse(b) { await BLE.write({ deviceId: dev.id, service: su, characteristic: cu, value: toHex(b), timeout: 8000 }); },
+      async writeValueWithoutResponse(b) { await BLE.writeWithoutResponse({ deviceId: dev.id, service: su, characteristic: cu, value: toHex(b) }); },
+      async writeValue(b) { return ch.writeValueWithResponse(b); }
+    };
+    return ch;
+  }
+  const devCache = {};
+  function makeDevice(info) {
+    if (devCache[info.deviceId]) { if (info.name) devCache[info.deviceId].name = info.name; return devCache[info.deviceId]; }
+    const em = emitter(); let services = [], dl = null;
+    const dev = { id: info.deviceId, name: info.name || "", addEventListener: (t, f) => em.on(t, f), removeEventListener: (t, f) => em.off(t, f) };
+    const server = { async getPrimaryService(su) {
+      su = low(su); const s = services.find(x => low(x.uuid) === su);
+      if (!s) throw new Error("No Services matching UUID " + su);
+      return { async getCharacteristic(cu) {
+        cu = low(cu); const c = (s.characteristics || []).find(x => low(x.uuid) === cu);
+        if (!c) throw new Error("No Characteristics matching UUID " + cu);
+        return makeChar(dev, su, cu, c.properties || {});
+      } };
+    } };
+    dev.gatt = { connected: false,
+      async connect() {
+        await init();
+        if (!dl) dl = await BLE.addListener(`disconnected|${dev.id}`, () => { if (dev.gatt.connected) { dev.gatt.connected = false; em.emit("gattserverdisconnected", {}); } });
+        await BLE.connect({ deviceId: dev.id, timeout: 15000 });
+        dev.gatt.connected = true;
+        try { services = (await BLE.getServices({ deviceId: dev.id })).services || []; } catch (e) { services = []; }
+        return server;
+      },
+      disconnect() { const was = dev.gatt.connected; dev.gatt.connected = false; BLE.disconnect({ deviceId: dev.id }).catch(() => {}); if (was) em.emit("gattserverdisconnected", {}); }
+    };
+    return (devCache[dev.id] = dev);
+  }
+  const shim = {
+    async requestDevice(o) { await init(); const d = await BLE.requestDevice({ optionalServices: (o && o.optionalServices || []).map(low) }); return makeDevice(d); },
+    async getDevices() {
+      await init();
+      let ids = []; try { ids = Object.values(JSON.parse(localStorage.getItem("mh-devices") || "{}")); } catch (e) {}
+      if (!ids.length) return [];
+      const r = await BLE.getDevices({ deviceIds: ids });
+      return (r.devices || []).map(makeDevice);
+    }
+  };
+  try { Object.defineProperty(navigator, "bluetooth", { value: shim, configurable: true }); } catch (e) { window.__bt = shim; }
+}
 function crc16(bytes) { let c = 0xFFFF; for (const x of bytes) { c ^= x; for (let i = 0; i < 8; i++) c = (c & 1) ? (c >> 1) ^ 0xA001 : c >> 1; } return [c & 255, c >> 8]; }
 const hm = min => min == null || !isFinite(min) || min < 0 ? "--" : (min >= 6000 ? "> 99 h" : `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, "0")}`);
 const clock = min => { const d = new Date(Date.now() + min * 60000); return d.toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}); };
@@ -462,12 +544,13 @@ function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = fals
 
 /* ================= configuração ================= */
 const DEF = { names: {}, capAh: null, src: "auto", socMin: 20, vMin: 12.0, cellDiff: 60, tMax: 50, notif: false, climOff: 0, climFan: 50, climMode: 1 };
+if (NATIVE) DEF.notif = true;
 const cfg = Object.assign({}, DEF, store.get("mh-cfg", {}));
 const saveCfg = () => store.set("mh-cfg", cfg);
 
 /* ================= estado ================= */
 const S = { bms: null, kg: null, chg: null, clim: null, t: { bms: 0, kg: 0, chg: 0, clim: 0 }, live: { bms: false, kg: false, chg: false, clim: false } };
-const fresh = k => S[k] && Date.now() - S.t[k] < 60000;
+const fresh = k => S[k] && Date.now() - S.t[k] < (document.visibilityState === "visible" ? 60000 : 240000);
 
 /* ================= decodificadores (extraídos dos apps oficiais) ================= */
 // Junctek KG: quadros BB … EE; valores BCD seguidos de byte-etiqueta >= 0xA0
@@ -720,7 +803,7 @@ function disconnect(k) {
   d.manual = true; clearInterval(d.timer); clearTimeout(d.noData);
   try { d.device.gatt.disconnect(); } catch (e) {}
   S.live[k] = false; S[k] = null; S.t[k] = 0; d.parser = d.mk(); d.state = {};
-  setDev(k, "off", "desconectado"); render();
+  setDev(k, "off", "desconectado"); render(); keepAliveTick();
 }
 function forget(k) {
   disconnect(k);
@@ -756,13 +839,19 @@ function onData(k) {
   S.t[k] = Date.now();
   if (status[k][0] !== "on" || status[k][1] !== "recebendo dados") setDev(k, "on", "recebendo dados");
   S.live[k] = true;
+  if (KA && !kaOn) keepAliveTick();
   if (k === "bms") S.bms = DEV.bms.parser.last;
   if (k === "kg") S.kg = kgValues(DEV.kg.parser.reg);
   if (k === "chg") S.chg = Object.assign({}, DEV.chg.parser.last, { type: DEV.chg.parser.type });
   if (k === "clim") { const st = DEV.clim.state; S.clim = Object.assign({}, st, { on: (st.fan || 0) > 0 }); }
   scheduleRender();
 }
-let rq = 0; function scheduleRender() { if (!rq) rq = requestAnimationFrame(() => { rq = 0; render(); }); }
+let rq = 0, lastBg = 0;
+function scheduleRender() {
+  // em segundo plano não há quadros de animação: desenha (e avalia alertas) direto, no máximo a cada 2 s
+  if (document.visibilityState !== "visible") { if (Date.now() - lastBg > 2000) { lastBg = Date.now(); render(); } return; }
+  if (!rq) rq = requestAnimationFrame(() => { rq = 0; render(); });
+}
 
 /* ================= grandezas da casa ================= */
 function home() {
@@ -1035,6 +1124,10 @@ function renderAlerts(H) {
   if (cfg.notif) for (const [id, lvl, txt] of A) if (lvl !== "info" && Date.now() - (alertSeen[id] || 0) > 20 * 60000) { alertSeen[id] = Date.now(); store.set("mh-alertseen", alertSeen); notify(txt.replace(/<[^>]+>/g, "")); }
 }
 async function notify(text) {
+  if (NATIVE && CP.LocalNotifications) {
+    try { await CP.LocalNotifications.schedule({ notifications: [{ id: Math.floor(Date.now() % 2000000000), title: "Painel Motorhome", body: text, smallIcon: "ic_stat_notify" }] }); } catch (e) {}
+    return;
+  }
   try {
     if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
     if (!("Notification" in window) || Notification.permission !== "granted") return;
@@ -1253,9 +1346,9 @@ $("cfgNotif").addEventListener("change", async () => {
 let installEvt = null;
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("btnInstall").hidden = false; });
 $("btnInstall").addEventListener("click", async () => { if (!installEvt) return; installEvt.prompt(); try { await installEvt.userChoice; } catch (e) {} installEvt = null; $("btnInstall").hidden = true; });
-if ("wakeLock" in navigator) { const lock = () => navigator.wakeLock.request("screen").catch(() => {}); lock(); document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") lock(); }); }
-const APP_VER = "v6";
-if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+if (!NATIVE && "wakeLock" in navigator) { const lock = () => navigator.wakeLock.request("screen").catch(() => {}); lock(); document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") lock(); }); }
+const APP_VER = "v7";
+if (!NATIVE && "serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => {
     const check = () => reg.update().catch(() => {});
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
@@ -1278,7 +1371,9 @@ async function forceUpdate() {
   } catch (e) {}
   location.replace(location.pathname + "?v=" + Date.now() + location.hash);
 }
-$("btnUpdate").addEventListener("click", forceUpdate);
+const APK_URL = "https://github.com/julio8794/painel-motorhome/releases/latest/download/PainelMotorhome.apk";
+$("btnUpdate").addEventListener("click", () => { if (NATIVE) location.href = APK_URL; else forceUpdate(); });
+if (NATIVE) $("btnUpdate").textContent = "Baixar versão nova do app";
 // ao voltar para o app: reconecta na hora tudo o que caiu enquanto estava minimizado
 function reconnectAll() {
   for (const k in DEV) {
@@ -1291,13 +1386,46 @@ window.addEventListener("pageshow", () => setTimeout(reconnectAll, 300));
 window.addEventListener("focus", () => setTimeout(reconnectAll, 300));
 // avisa se existe versão mais nova publicada
 (async () => {
-  if (!navigator.onLine || location.protocol !== "https:") return;
+  if (NATIVE || !navigator.onLine || location.protocol !== "https:") return;
   try {
     const t = await (await fetch("index.html?check=" + Date.now(), { cache: "no-store" })).text();
     const m = t.match(/const APP_VER = "(v\d+)"/);
     if (m && m[1] !== APP_VER) { $("btnUpdate").textContent = `Atualizar para ${m[1]}`; toast(`Versão ${m[1]} disponível: Ajustes → Atualizar.`); }
   } catch (e) {}
 })();
+
+/* ---------- app Android: serviço em primeiro plano ---------- */
+const KA = NATIVE ? CP.KeepAlive : null;
+let kaOn = false;
+if (cfg.bg === undefined) cfg.bg = true;
+async function keepAliveTick() {
+  if (!KA) return;
+  const want = cfg.bg && Object.values(DEV).some(d => d.device && !d.manual);
+  try {
+    if (want && !kaOn) { await KA.start({ title: "Painel Motorhome", text: "Monitorando os aparelhos" }); kaOn = true; }
+    else if (!want && kaOn) { await KA.stop(); kaOn = false; }
+    if (kaOn) {
+      const H = home(), p = [];
+      if (H.soc != null) p.push(`Bateria ${Math.round(H.soc)}%`);
+      if (H.A != null) p.push(`${sgn(H.A, 1)} A`);
+      if (H.pv != null && H.pv > 0) p.push(`Solar ${Math.round(H.pv)} W`);
+      if (fresh("clim")) p.push(S.clim.on ? `Clima ${S.clim.fan}%` : "Clima desligado");
+      const n = Object.keys(DEV).filter(fresh).length, m = Object.values(DEV).filter(d => d.device).length;
+      await KA.update({ text: `${p.join(" · ") || "aguardando dados"} · ${n}/${m} conectados` });
+    }
+  } catch (e) {}
+}
+if (NATIVE) {
+  $("nativeBox").hidden = false;
+  $("cfgBg").checked = !!cfg.bg;
+  $("cfgBg").addEventListener("change", () => { cfg.bg = $("cfgBg").checked; saveCfg(); keepAliveTick(); });
+  $("btnBatt").addEventListener("click", () => KA && KA.openBatterySettings().catch(() => {}));
+  $("btnAppSettings").addEventListener("click", () => KA && KA.openAppSettings().catch(() => {}));
+  const battCheck = () => KA && KA.isIgnoringBattery().then(r => { $("battInfo").textContent = r.value ? "liberado: o app pode rodar em segundo plano" : "restrito: toque em Ajustar e permita"; }).catch(() => {});
+  battCheck(); document.addEventListener("visibilitychange", battCheck);
+  setInterval(keepAliveTick, 15000);
+  if (CP.LocalNotifications) CP.LocalNotifications.requestPermissions().catch(() => {});
+}
 
 (async () => {
   HIST.db = await idb(); histPrune();
