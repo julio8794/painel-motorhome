@@ -176,6 +176,24 @@ dialog .actions{justify-content:flex-end}
 
 .toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + 16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:40;background:var(--panel-solid);border:1px solid var(--line);border-radius:8px;padding:9px 14px;font-size:14px;max-width:calc(100vw - 32px)}
 
+/* Climatizador */
+.clim{display:grid;gap:10px}
+.clim-top{display:flex;align-items:center;gap:12px}
+.pwr{width:54px;height:54px;border-radius:50%;border:2px solid var(--line);background:rgba(255,255,255,.04);display:grid;place-items:center;flex:none;color:var(--muted)}
+.pwr svg{width:26px;height:26px}
+.pwr[aria-pressed="true"]{border-color:var(--amp);color:var(--amp);box-shadow:0 0 14px color-mix(in srgb,var(--amp) 40%,transparent)}
+.clim-st{display:grid;gap:1px;min-width:0}
+.clim-st b{font-family:var(--f-display);font-size:22px;font-weight:600}
+.clim-st span{font-size:12.5px;color:var(--muted)}
+.fanrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px}
+.fanrow .lbl{margin:0}
+.fanrow b{font-family:var(--f-display);font-size:20px;min-width:52px;text-align:right}
+input[type=range]{width:100%;accent-color:var(--amp);height:28px}
+.clim .seg button{padding:6px 11px}
+.clim[data-off="1"] .needs-on{opacity:.45}
+.clim fieldset{border:0;padding:0;margin:0;display:grid;gap:5px;min-width:0}
+.clim legend{padding:0;margin-bottom:4px}
+.climErr{font-size:13.5px}
 @media (min-width:720px){
   .dash-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:12px;align-items:start}
 }
@@ -196,6 +214,7 @@ dialog .actions{justify-content:flex-end}
       <button class="dd" data-k="bms" data-s="off" aria-label="BMS"><i></i><span>BMS</span></button>
       <button class="dd" data-k="kg" data-s="off" aria-label="Monitor KG"><i></i><span>KG</span></button>
       <button class="dd" data-k="chg" data-s="off" aria-label="Carregador"><i></i><span>Carreg.</span></button>
+      <button class="dd" data-k="clim" data-s="off" aria-label="Climatizador"><i></i><span>Clima</span></button>
     </div>
   </div>
 </header>
@@ -246,6 +265,9 @@ dialog .actions{justify-content:flex-end}
         </div>
 
         <div class="wrap">
+          <div class="box tagged" id="climPanelBox" hidden><span class="tag a">Climatizador</span>
+            <div class="climHost"></div>
+          </div>
           <div class="box tagged"><span class="tag p">Fluxo de energia</span>
             <div class="flow">
               <div class="ft solar"><div class="lbl">Solar</div><div class="v" id="fSolar">--</div><div class="s" id="fSolarS">painel --</div></div>
@@ -348,6 +370,16 @@ dialog .actions{justify-content:flex-end}
         <div class="chips" id="c-flags"></div>
         <div class="age" data-age="chg"></div>
       </article>
+      <article class="box tagged devcard" id="dc-clim"><span class="tag a">Climatizador</span>
+        <div class="devhead"><span class="nm" data-name="clim">Climatizador</span><span class="model" id="climModel"></span><span class="st" data-st="clim" data-s="off"><i></i><span>desconectado</span></span></div>
+        <div class="actions" data-act="clim"></div>
+        <div class="climHost"></div>
+        <div class="rows">
+          <div class="row"><span class="k">Modelo / versão</span><span class="val" id="cl-ver">--</span></div>
+          <div class="row"><span class="k">Código de erro</span><span class="val" id="cl-err">--</span></div>
+        </div>
+        <div class="age" data-age="clim"></div>
+      </article>
     </div>
   </section>
 
@@ -370,6 +402,11 @@ dialog .actions{justify-content:flex-end}
         <div class="field"><label for="cfgNotif">Notificação e vibração<small>com o painel aberto ou minimizado</small></label><input id="cfgNotif" class="switch" type="checkbox"></div>
       </div>
 
+      <h2 class="sec">Climatizador</h2>
+      <div class="box form">
+        <div class="field"><label for="cfgClimOff">Desligar sozinho com a bateria em (%)<small>poupa a bateria; 0 = nunca</small></label><input id="cfgClimOff" type="number" min="0" max="90" step="1" inputmode="numeric"></div>
+      </div>
+
       <h2 class="sec">Monitor KG — gravar no aparelho</h2>
       <div class="box form">
         <div class="hint">Estes comandos alteram o monitor KG, como no app original. Cada um pede confirmação.</div>
@@ -382,7 +419,7 @@ dialog .actions{justify-content:flex-end}
       </div>
 
       <h2 class="sec">Sobre</h2>
-      <div class="box hint">Painel Motorhome v2. Funciona sem internet depois de instalado; conversa com os aparelhos direto pelo Bluetooth do celular. Os dados ficam só neste celular.
+      <div class="box hint">Painel Motorhome v3. Funciona sem internet depois de instalado; conversa com os aparelhos direto pelo Bluetooth do celular. Os dados ficam só neste celular.
         <div class="actions" style="margin-top:10px"><button class="btn" id="btnInstall" hidden>Instalar app</button></div></div>
     </div>
   </section>
@@ -424,12 +461,12 @@ const clock = min => { const d = new Date(Date.now() + min * 60000); return d.to
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 2600); }
 
 /* ================= configuração ================= */
-const DEF = { names: {}, capAh: null, src: "auto", socMin: 20, vMin: 12.0, cellDiff: 60, tMax: 50, notif: false };
+const DEF = { names: {}, capAh: null, src: "auto", socMin: 20, vMin: 12.0, cellDiff: 60, tMax: 50, notif: false, climOff: 0, climFan: 50, climMode: 1 };
 const cfg = Object.assign({}, DEF, store.get("mh-cfg", {}));
 const saveCfg = () => store.set("mh-cfg", cfg);
 
 /* ================= estado ================= */
-const S = { bms: null, kg: null, chg: null, t: { bms: 0, kg: 0, chg: 0 }, live: { bms: false, kg: false, chg: false } };
+const S = { bms: null, kg: null, chg: null, clim: null, t: { bms: 0, kg: 0, chg: 0, clim: 0 }, live: { bms: false, kg: false, chg: false, clim: false } };
 const fresh = k => S[k] && Date.now() - S.t[k] < 60000;
 
 /* ================= decodificadores (extraídos dos apps oficiais) ================= */
@@ -548,18 +585,58 @@ function olysValues(b) {
     ah: u24(22), wh: u24(25), outV: u16(36) / 10, maxA: b[38] };
 }
 
+// Climatizador Resfri Ar (app resfriar_connect): um canal GATT por grandeza, valores em texto ("0", "50"…)
+const CLIM_SVC = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const CLIM_CH = { fan: "02", water: "03", sleep: "05", ver: "06", model: "07", light: "08", err: "12" };
+const climUUID = n => `6e4000${n}-b5a3-f393-e0a9-e50e24dcca9e`;
+const CLIM_ERR = { 1: "E1 · motor em curto", 2: "E2 · sobrecarga no motor", 3: "E3 · falha na bomba do tanque", 4: "E4 · falha na bomba de retorno (base)", 6: "E6 · sobrecarga elétrica (load dump)", 9: "E9 · falha no circuito de detecção" };
+const CLIM_MODE = ["Ventilar", "Resfriar", "Conforto"];
+const td = new TextDecoder();
+async function climSetup(d, svc, k) {
+  d.ch = {};
+  for (const [key, n] of Object.entries(CLIM_CH)) { try { d.ch[key] = await svc.getCharacteristic(climUUID(n)); } catch (e) {} }
+  if (!d.ch.fan) throw new Error("No characteristic matching UUID (climatizador)");
+  d.state = d.state || {};
+  const parse = (key, dv) => {
+    const txt = td.decode(dv).replace(/\0/g, "").trim();
+    d.state[key] = (key === "ver" || key === "model") ? txt : (isFinite(parseInt(txt, 10)) ? parseInt(txt, 10) : d.state[key]);
+  };
+  d.handlers = d.handlers || {};
+  for (const key of ["fan", "water", "sleep", "light", "err"]) {
+    const c = d.ch[key]; if (!c) continue;
+    if (d.handlers[key] && d.handlers[key].c) d.handlers[key].c.removeEventListener("characteristicvaluechanged", d.handlers[key].f);
+    const f = ev => { try { parse(key, ev.target.value); onData(k); } catch (e) {} };
+    c.addEventListener("characteristicvaluechanged", f); d.handlers[key] = { c, f };
+    try { await c.startNotifications(); } catch (e) {}
+  }
+  d.readAll = async (keys = ["model", "ver", "fan", "water", "sleep", "light", "err"]) => {
+    let got = false;
+    for (const key of keys) { const c = d.ch[key]; if (!c) continue; try { parse(key, await c.readValue()); got = true; } catch (e) {} }
+    if (got) onData(k);
+  };
+  d.put = async (key, val) => {
+    const c = d.ch[key]; if (!c) return false;
+    const bytes = new TextEncoder().encode(String(val));
+    try { if (c.writeValueWithResponse) await c.writeValueWithResponse(bytes); else await c.writeValue(bytes); d.state[key] = Number(val); onData(k); return true; }
+    catch (e) { return false; }
+  };
+  d.write = async () => true;
+}
+
 /* ================= Bluetooth ================= */
 const DEV = {
   bms: { label: "BMS Daly", svc: "fff0", rx: "fff1", tx: "fff2", mk: makeDaly, pollMs: 2000, init: async w => w(DALY_READ), poll: async w => w(DALY_READ) },
   kg:  { label: "Monitor KG", svc: "fff0", rx: "fff1", tx: "fff2", mk: makeKG, pollMs: 30000, init: async w => w(KG_ALL), poll: async w => w(KG_ALL) },
   chg: { label: "Carregador", svc: "18f0", rx: "2af0", tx: "2af1", mk: makeOlys, pollMs: 2000,
          init: async w => { await w(OLYS.type); await sleep(150); await w(OLYS.data); },
-         poll: async w => { await w(OLYS.beat); if (Date.now() - S.t.chg > 5000) await w(OLYS.data); } }
+         poll: async w => { await w(OLYS.beat); if (Date.now() - S.t.chg > 5000) await w(OLYS.data); } },
+  clim: { label: "Climatizador", svc: CLIM_SVC, mk: () => ({ feed: () => false }), pollMs: 10000, setup: climSetup,
+          init: async () => DEV.clim.readAll(), poll: async () => DEV.clim.readAll(["fan", "water", "sleep", "light", "err"]) }
 };
 for (const k in DEV) DEV[k].parser = DEV[k].mk();
 const btOK = !!(navigator.bluetooth && navigator.bluetooth.requestDevice);
 const devName = k => cfg.names[k] || store.get("mh-names", {})[k] || DEV[k].label;
-const status = { bms: ["off", "desconectado"], kg: ["off", "desconectado"], chg: ["off", "desconectado"] };
+const status = { bms: ["off", "desconectado"], kg: ["off", "desconectado"], chg: ["off", "desconectado"], clim: ["off", "desconectado"] };
 function setDev(k, s, txt) { status[k] = [s, txt]; paintStatus(k); }
 
 async function connect(k, device) {
@@ -568,7 +645,7 @@ async function connect(k, device) {
   try {
     if (!device) {
       setDev(k, "busy", "escolha o aparelho na lista…");
-      device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [UUID("fff0"), UUID("18f0")] });
+      device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [UUID("fff0"), UUID("18f0"), CLIM_SVC] });
     }
     for (const o in DEV) if (o !== k && DEV[o].device && DEV[o].device.id === device.id) { setDev(k, "err", "esse aparelho já está em outra posição"); return; }
     d.device = device; d.manual = false;
@@ -590,6 +667,8 @@ async function open(k) {
     setDev(k, "busy", "conectando…");
     const server = await Promise.race([d.device.gatt.connect(), sleep(15000).then(() => { throw new Error("Tempo esgotado ao conectar"); })]);
     const svc = await server.getPrimaryService(UUID(d.svc));
+    if (d.setup) { await d.setup(d, svc, k); }
+    else {
     const rx = await svc.getCharacteristic(UUID(d.rx));
     let tx; try { tx = await svc.getCharacteristic(UUID(d.tx)); } catch (e) { tx = rx; }
     d.write = async bytes => {
@@ -603,6 +682,7 @@ async function open(k) {
     d.onRx = ev => { const v = ev.target.value; try { if (d.parser.feed(new Uint8Array(v.buffer, v.byteOffset, v.byteLength))) onData(k); } catch (e) {} };
     rx.addEventListener("characteristicvaluechanged", d.onRx); d.rxChar = rx;
     await rx.startNotifications();
+    }
     setDev(k, "on", "conectado, aguardando dados…");
     await sleep(300); await d.init(d.write);
     clearInterval(d.timer);
@@ -639,7 +719,7 @@ function disconnect(k) {
   const d = DEV[k]; if (!d.device) return;
   d.manual = true; clearInterval(d.timer); clearTimeout(d.noData);
   try { d.device.gatt.disconnect(); } catch (e) {}
-  S.live[k] = false; S[k] = null; S.t[k] = 0; d.parser = d.mk();
+  S.live[k] = false; S[k] = null; S.t[k] = 0; d.parser = d.mk(); d.state = {};
   setDev(k, "off", "desconectado"); render();
 }
 function forget(k) {
@@ -653,7 +733,7 @@ function swap(k) {
   // limpeza síncrona e requestDevice no mesmo toque (exigência do Chrome)
   const d = DEV[k];
   if (d.device) { d.manual = true; clearInterval(d.timer); try { d.device.gatt.disconnect(); } catch (e) {} d.device = null; }
-  S.live[k] = false; S[k] = null; S.t[k] = 0; d.parser = d.mk();
+  S.live[k] = false; S[k] = null; S.t[k] = 0; d.parser = d.mk(); d.state = {};
   connect(k);
 }
 function erro(e) {
@@ -679,6 +759,7 @@ function onData(k) {
   if (k === "bms") S.bms = DEV.bms.parser.last;
   if (k === "kg") S.kg = kgValues(DEV.kg.parser.reg);
   if (k === "chg") S.chg = Object.assign({}, DEV.chg.parser.last, { type: DEV.chg.parser.type });
+  if (k === "clim") { const st = DEV.clim.state; S.clim = Object.assign({}, st, { on: (st.fan || 0) > 0 }); }
   scheduleRender();
 }
 let rq = 0; function scheduleRender() { if (!rq) rq = requestAnimationFrame(() => { rq = 0; render(); }); }
@@ -742,7 +823,7 @@ function vScale(V) { if (V == null) return [10, 15]; if (V < 17) return [10.5, 1
 /* ================= render ================= */
 function render() {
   const H = home(); window.__H = H;
-  const anyLive = ["bms", "kg", "chg"].some(fresh);
+  const anyLive = Object.keys(DEV).some(fresh);
   $("noDevices").hidden = anyLive;
 
   // tensão
@@ -773,6 +854,7 @@ function render() {
   $("fStart").innerHTML = H.startV == null ? "--" : `${fmt(H.startV, 1)}<small>V</small>`;
 
   renderDevices(H);
+  renderClim(H);
   renderAlerts(H);
   paintAll();
 }
@@ -863,7 +945,74 @@ function paintAll() {
 function ages() {
   for (const k in DEV) $$(`[data-age="${k}"]`).forEach(e => e.textContent = !S.t[k] ? "" : `último dado há ${Math.max(0, Math.round((Date.now() - S.t[k]) / 1000))} s`);
 }
-setInterval(() => { ages(); if (["bms", "kg", "chg"].some(k => S[k] && !fresh(k) && S.live[k])) { for (const k in DEV) if (S[k] && !fresh(k)) S.live[k] = false; render(); } }, 1000);
+setInterval(() => { ages(); if (Object.keys(DEV).some(k => S[k] && !fresh(k) && S.live[k])) { for (const k in DEV) if (S[k] && !fresh(k)) S.live[k] = false; render(); } }, 1000);
+
+/* ---------- Climatizador ---------- */
+const PWR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></svg>';
+function climHTML() {
+  return `<div class="clim">
+    <div class="clim-top"><button class="pwr" data-clim="power" aria-pressed="false" aria-label="Ligar ou desligar">${PWR_SVG}</button>
+      <div class="clim-st"><b class="clSt">--</b><span class="clSub">--</span></div></div>
+    <div class="fanrow needs-on"><span class="lbl">Ventilador</span><input type="range" min="0" max="100" step="10" class="climFan" aria-label="Velocidade do ventilador"><b class="clFanV">--</b></div>
+    <fieldset class="needs-on"><legend class="lbl">Modo</legend><div class="seg">${CLIM_MODE.map((m, i) => `<button data-clim="mode" data-v="${i}" aria-pressed="false">${m}</button>`).join("")}</div></fieldset>
+    <fieldset class="needs-on"><legend class="lbl">Desligar em</legend><div class="seg">${["Off", "1 h", "2 h", "3 h", "4 h", "5 h"].map((m, i) => `<button data-clim="sleep" data-v="${i}" aria-pressed="false">${m}</button>`).join("")}</div></fieldset>
+    <div class="seg"><button data-clim="light" aria-pressed="false">Luz</button></div>
+    <div class="climErr" hidden></div>
+  </div>`;
+}
+document.querySelectorAll(".climHost").forEach(h => h.innerHTML = climHTML());
+function renderClim(H) {
+  const c = fresh("clim") ? S.clim : null, d = DEV.clim, connected = !!(d.device && d.device.gatt.connected);
+  $("climPanelBox").hidden = !d.device;
+  $$(".clim").forEach(box => {
+    box.dataset.off = c && c.on ? "0" : "1";
+    box.querySelector('[data-clim="power"]').setAttribute("aria-pressed", String(!!(c && c.on)));
+    box.querySelector(".clSt").textContent = !c ? (connected ? "aguardando…" : "desconectado") : c.on ? `Ligado · ${CLIM_MODE[c.water] || "modo " + c.water}` : "Desligado";
+    box.querySelector(".clSub").textContent = !c ? "--" : c.on ? `ventilador ${c.fan}%${c.sleep ? ` · desliga em ${c.sleep} h` : ""}` : "toque no botão para ligar";
+    const r = box.querySelector(".climFan");
+    if (c && document.activeElement !== r && !r.dataset.drag) r.value = c.on ? c.fan : 0;
+    box.querySelector(".clFanV").textContent = c ? `${r.dataset.drag ? r.value : (c.on ? c.fan : 0)}%` : "--";
+    box.querySelectorAll('[data-clim="mode"]').forEach(b => b.setAttribute("aria-pressed", String(!!c && c.water === +b.dataset.v)));
+    box.querySelectorAll('[data-clim="sleep"]').forEach(b => b.setAttribute("aria-pressed", String(!!c && (c.sleep || 0) === +b.dataset.v)));
+    box.querySelector('[data-clim="light"]').setAttribute("aria-pressed", String(!!c && c.light > 0));
+    box.querySelectorAll("button, input").forEach(el => el.disabled = !connected);
+    const er = box.querySelector(".climErr"); const code = c && c.err;
+    er.hidden = !code; if (code) er.innerHTML = `<span class="chip bad">${CLIM_ERR[code] || "Erro " + code}</span>`;
+  });
+  if (S.clim && (S.clim.model || S.clim.ver)) { $("climModel").textContent = S.clim.model || ""; $("cl-ver").textContent = `${S.clim.model || "--"} · ${S.clim.ver || "--"}`; }
+  $("cl-err").textContent = S.clim && S.clim.err ? (CLIM_ERR[S.clim.err] || "Erro " + S.clim.err) : (S.clim ? "nenhum" : "--");
+  // modo economia: desliga o climatizador quando a bateria chega no limite
+  if (cfg.climOff > 0 && c && c.on && H.soc != null && H.soc <= cfg.climOff && Date.now() - (climAuto.t || 0) > 120000) {
+    climAuto.t = Date.now();
+    climCmd("off").then(ok => { if (ok) { climAuto.msg = `Climatizador desligado com a bateria em ${Math.round(H.soc)}% (limite ${cfg.climOff}%).`; notify(climAuto.msg); toast(climAuto.msg); render(); } });
+  }
+}
+const climAuto = { t: 0, msg: "" };
+async function climCmd(act, v) {
+  const d = DEV.clim, c = d.state || {};
+  if (!d.device || !d.device.gatt.connected || !d.put) { toast("Conecte o climatizador primeiro."); return false; }
+  let ok = true;
+  const on = (c.fan || 0) > 0;
+  if (act === "off" || (act === "power" && on) || (act === "fan" && v === 0)) {
+    ok = await d.put("water", 0) && ok; await d.put("sleep", 0); ok = await d.put("fan", 0) && ok;
+  } else if (act === "power" || act === "fan") {
+    const fan = act === "fan" ? v : (cfg.climFan || 50);
+    ok = await d.put("fan", fan);
+    if (act === "fan") { cfg.climFan = fan; saveCfg(); }
+    if (!on) await d.put("water", cfg.climMode ?? 1);
+  } else if (act === "mode") { ok = await d.put("water", v); cfg.climMode = v; saveCfg(); }
+  else if (act === "sleep") ok = await d.put("sleep", v);
+  else if (act === "light") ok = await d.put("light", (c.light || 0) > 0 ? 0 : 1);
+  if (!ok) toast("O climatizador não aceitou o comando. Tente de novo.");
+  setTimeout(() => d.readAll && d.readAll(["fan", "water", "sleep", "light"]), 700);
+  return ok;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-clim]"); if (!b || b.disabled) return;
+  const act = b.dataset.clim; climCmd(act, b.dataset.v != null ? +b.dataset.v : undefined);
+});
+document.addEventListener("input", e => { if (e.target.classList.contains("climFan")) { e.target.dataset.drag = "1"; e.target.closest(".clim").querySelector(".clFanV").textContent = e.target.value + "%"; } });
+document.addEventListener("change", e => { if (e.target.classList.contains("climFan")) { const v = +e.target.value; delete e.target.dataset.drag; climCmd("fan", v); } });
 
 /* ---------- Alertas ---------- */
 const alertSeen = store.get("mh-alertseen", {});
@@ -878,6 +1027,8 @@ function renderAlerts(H) {
   if (H.c && (H.c.overTemp || H.c.batOver || H.c.pvOver)) A.push(["chg", "warn", `<b>Carregador com alerta.</b> Veja em Aparelhos`]);
   if (H.b && H.k && H.k.soc != null && Math.abs(H.k.soc - H.b.soc) >= 5)
     A.push(["sync", "info", `KG marca ${fmt(H.k.soc, 0)}% e o BMS ${fmt(H.b.soc, 0)}%.`, `<button data-kg="sync">Sincronizar KG</button>`]);
+  if (fresh("clim") && S.clim.err) A.push(["climerr", "bad", `<b>Climatizador:</b> ${CLIM_ERR[S.clim.err] || "erro " + S.clim.err}`]);
+  if (climAuto.msg && Date.now() - climAuto.t < 30 * 60000) A.push(["climauto", "info", climAuto.msg]);
   for (const k in DEV) if (DEV[k].device && !DEV[k].manual && S.t[k] && !fresh(k)) A.push(["lost-" + k, "warn", `<b>${devName(k)}</b> sem sinal há mais de 1 minuto`]);
   const html = A.map(([id, lvl, txt, extra]) => `<div class="alert ${lvl === "bad" ? "" : lvl}"><span>${txt}</span>${extra || ""}</div>`).join("");
   const box = $("alerts"); if (box.dataset.h !== html) { box.innerHTML = html; box.dataset.h = html; }
@@ -1088,6 +1239,7 @@ bind("cfgSocMin", "socMin", v => num(v) ?? DEF.socMin);
 bind("cfgVMin", "vMin", v => num(v) ?? DEF.vMin);
 bind("cfgCell", "cellDiff", v => num(v) ?? DEF.cellDiff);
 bind("cfgTMax", "tMax", v => num(v) ?? DEF.tMax);
+bind("cfgClimOff", "climOff", v => { const n = num(v); return n && n > 0 ? Math.min(90, n) : 0; });
 $("cfgSrc").value = cfg.src; $("cfgSrc").addEventListener("change", () => { cfg.src = $("cfgSrc").value; saveCfg(); render(); });
 $("cfgNotif").checked = !!cfg.notif;
 $("cfgNotif").addEventListener("change", async () => {
@@ -1111,7 +1263,7 @@ if ("serviceWorker" in navigator && (location.protocol === "https:" || location.
   render(); renderToday(); autoReconnect();
   $("btWarn").hidden = btOK;
 })();
-window.__mh = { makeKG, kgValues, makeDaly, makeOlys, crc16, DALY_READ, kgCmd, histAdd };
+window.__mh = { climCmd, makeKG, kgValues, makeDaly, makeOlys, crc16, DALY_READ, kgCmd, histAdd };
 </script>
 </body>
 </html>

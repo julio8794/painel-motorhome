@@ -1,5 +1,5 @@
 // Painel Motorhome: funciona offline (no motorhome nem sempre há internet)
-const CACHE = "painel-motorhome-v3";
+const CACHE = "painel-motorhome-v4";
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
